@@ -1,0 +1,229 @@
+version: "3.7"
+
+volumes:
+  # These are needed by frontends and managers so defining here
+  movie_library:
+    driver_opts:
+      type: "nfs"
+      o: "addr=${DROGON_FREENAS_IP},nolock,soft,rw"
+      device: ":/mnt/vpool1/media/movies"
+  tv_library:
+    driver_opts:
+      type: "nfs"
+      o: "addr=${DROGON_FREENAS_IP},nolock,soft,rw"
+      device: ":/mnt/vpool1/media/tv"
+networks:
+  service:
+    driver: overlay
+    attachable: true
+    internal: true
+  proxy:
+    driver: overlay
+    attachable: true
+    internal: false
+  monitoring:
+    driver: overlay
+    internal: true
+    attachable: true
+
+services:
+
+  #  BIND all the shit so it loads upfront^^^
+  whoami:
+    image: "containous/whoami"
+    networks:
+      - proxy
+      - service
+    volumes:
+      #  trigger lazy load
+      # - test_library:/test-library
+      - movie_library:/movie-library
+      - tv_library:/tv-library
+    deploy:
+      mode: replicated
+      replicas: 3
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.whoami.rule=Host(`whoami.$INTERNAL_HOST`) || Host(`whoami.$EXTERNAL_HOST`)"
+        - "traefik.http.routers.whoami.entrypoints=web"
+        - "traefik.http.services.whoami.loadbalancer.server.port=80"
+        # - 'traefik.http.routers.whoami.middlewares=authelia@docker'
+
+  # authelia:
+  #   image: authelia/authelia
+  #   environment:
+  #     - TZ
+  #   volumes:
+  #     # - ./authelia:/var/lib/authelia
+  #     - ./authelia/configuration.yml:/etc/authelia/configuration.yml:ro
+  #     - ./authelia/users_database.yml:/etc/authelia/users_database.yml
+  #   networks:
+  #     - proxy
+  #     - service
+  #   deploy:
+  #     labels:
+  #       - 'traefik.enable=true'
+  #       - 'traefik.http.routers.authelia.rule=Host(`auth.$INTERNAL_HOST` || Host(`auth.$EXTERNAL_HOST`)'
+  #       - 'traefik.http.routers.authelia.entrypoints=http'
+
+  redis:
+    image: redis:alpine
+    volumes:
+      - ${SERVICES_FOLDER}/redis_data:/data
+    networks:
+      - service
+    # expose:
+      # - 6379
+    environment:
+      - TZ
+
+  # https://hub.docker.com/r/portainer/portainer/
+  portainer:
+    image: portainer/portainer:latest
+    environment:
+      - VIRTUAL_HOST=portainer.$INTERNAL_HOST
+    networks:
+      - proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SERVICES_FOLDER}/portainer:/data
+    deploy:
+      placement:
+        constraints:
+          - "node.role==manager"
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+        - "traefik.http.routers.portainer.rule=Host(`portainer.$INTERNAL_HOST`)"
+        - "traefik.http.routers.portainer.entrypoints=web"
+
+  # https://docs.traefik.io/user-guides/docker-compose/basic-example/
+  traefik:
+    image: traefik:latest
+    networks:
+      - proxy
+      - monitoring
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - ./traefik.yml:/traefik.yml:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    deploy:
+      placement:
+        constraints:
+          - "node.role==manager"
+      labels:
+        - "metrics"
+        - "metrics.prometheus.buckets=0.1,0.3,1.2,5.0"
+        - "traefik.enable=true"
+        - "traefik.http.routers.traefik.rule=Host(`traefik.$INTERNAL_HOST`)"
+        - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+        - "traefik.http.services.traefik.loadbalancer.server.scheme=http"
+        # - 'traefik.http.routers.api.middlewares=infra_authelia@docker'
+        # - 'traefik.http.middlewares.authelia.forwardauth.address=http://infra_authelia:9091/api/verify?rd=http://auth.knowledgedump.space'
+        # - 'traefik.http.middlewares.authelia.forwardauth.trustForwardHeader=true'
+        # - 'traefik.http.middlewares.authelia.forwardauth.authResponseHeaders=Remote-User, Remote-Groups'
+
+  ############################ Local Proxy ############################
+  # https://hub.docker.com/r/serjs/go-socks5-proxy
+  internalsocks5:
+    image: serjs/go-socks5-proxy:latest
+    networks:
+      - proxy
+    environment:
+      - PROXY_USER=${INTERNAL_SOCKS5_USER}
+      - PROXY_PASSWORD=${INTERNAL_SOCKS5_PW}}
+    ports:
+      - 1080:1080
+
+  # https://hub.docker.com/r/oznu/cloudflare-ddns
+  cloudflare-ddns:
+    image: oznu/cloudflare-ddns:latest
+    deploy:
+      placement:
+        constraints:
+          - "node.role==manager"
+    environment:
+      - API_KEY=$CF_API_KEY
+      - ZONE=$EXTERNAL_HOST
+      - PROXIED=false
+    # subdomain is only necessary if we do not define CNAMES
+    # in cloudflare currently we are.
+    # - SUBDOMAIN=organizr
+
+  # pihole:
+  #   image: pihole/pihole:latest
+  #   ports:
+  #     - "53:53/tcp"
+  #     - "53:53/udp"
+  #     - "67:67/udp"
+  #     # - "80:80/tcp"
+  #     # - "444:443/tcp"
+  #   environment:
+  #     - TZ
+  #     # - ServerIP=192.168.3.2
+  #     - PROXY_LOCATION=pihole
+  #     - DNS_BOGUS_PRIV=True
+  #     - CONDITIONAL_FORWARDING=True
+  #     - CONDITIONAL_FORWARDING_IP=192.168.3.1
+  #     - CONDITIONAL_FORWARDING_DOMAIN=lan
+  #     - VIRTUAL_HOST=pihole.$INTERNAL_HOST
+  #     - VIRTUAL_PORT=80
+  #     - DNS1=127.0.0.1
+  #     - DNS2=1.1.1.1
+  #     # WEBPASSWORD: 'set a secure password here or it will be random'
+  #   volumes:
+  #      - ./services/pihole:/etc/pihole/
+  #      # no idea WTF dnsmasq doesn't work here, or pihole-ftl which is apparently a wrapper around it
+  #      # until this shit is sorted out we'l get around that with host file manipulation- gross
+  #      # - ./services/etc-dnsmasq.d/:/etc/dnsmasq.d/
+  #   networks:
+  #     - proxy
+  #   dns:
+  #     - 127.0.0.1
+  #     - 1.1.1.1
+  #   #  NOTE: does not work in stacks right now, need to come
+  #   #  up with an alternative
+  #   #  Recommended but not required (DHCP needs NET_ADMIN)
+  #   #   https://github.com/pi-hole/docker-pi-hole#note-on-capabilities
+  #   # cap_add:
+  #   #   - NET_ADMIN
+  #   #   - NET_BIND_SERVICE
+  #   #   - NET_RAW
+  #   deploy:
+  #     placement:
+  #       constraints:
+  #         - "node.role==manager"
+  #     labels:
+  #       - "traefik.http.services.pihole.loadbalancer.server.port=80"
+  #       - "traefik.enable=true"
+  #       - "traefik.http.routers.pihole.rule=Host(`pihole.$INTERNAL_HOST`)"
+  #       - "traefik.http.routers.pihole.entrypoints=web"
+
+  # https://hub.docker.com/r/pyouroboros/ouroboros
+  # https://github.com/pyouroboros/ouroboros/wiki/Usage
+  ouroboros:
+    image: pyouroboros/ouroboros
+    networks:
+      - proxy
+      - monitoring
+    environment:
+      - CLEANUP=true
+      - INTERVAL=${DOCKER_CHECK_UPDATE_INTERVAL}
+      - LOG_LEVEL=debug
+      - SELF_UPDATE=true
+      # - IGNORE=pihole
+      - TZ
+      - PROMETHEUS_ADDR=0.0.0.0
+      - PROMETHEUS_PORT=9095
+      - DATA_EXPORT=prometheus
+      # Every monday
+      # - CRON="0 0 3 ? * MON *""
+    # restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      placement:
+        constraints:
+          - "node.role==manager"

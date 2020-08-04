@@ -1,0 +1,141 @@
+version: "3.7"
+
+volumes:
+  movie_library:
+    external: true
+    name: infra_movie_library
+  tv_library:
+    external: true
+    name: infra_tv_library
+  test_media:
+    driver_opts:
+      type: "nfs"
+      o: "addr=${DROGON_FREENAS_IP},nolock,soft,rw"
+      device: ":/mnt/vpool1/media/test_videos"
+
+networks:
+  service:
+    external:
+      name: infra_service
+  proxy:
+    external:
+      name: infra_proxy
+  host:
+    external:
+      name: host
+
+services:
+  # https://hub.docker.com/r/linuxserver/organizr
+  # organizr:
+  #   image: organizrtools/organizr-v2
+  #   networks:
+  #     - proxy
+  #     - service
+  #   environment:
+  #     - PUID
+  #     - PGID
+  #     - TZ
+  #   volumes:
+  #     - organizrr_data:/config
+  #   deploy:
+  #     labels:
+  #       - "traefik.enable=true"
+  #       - "traefik.http.routers.organizr.rule=Host(`organizr.$INTERNAL_HOST`) || Host(`organizr.$EXTERNAL_HOST`)"
+  #       - "traefik.http.routers.organizr.entrypoints=web"
+  #       - "traefik.http.services.organizr.loadbalancer.server.port=80"
+
+  ombi:
+    image: linuxserver/ombi
+    environment:
+      - PUID
+      - PGID
+      - TZ
+      - BASE_URL=/
+    volumes:
+      - ${SERVICES_FOLDER}/ombi:/config
+    networks:
+      - proxy
+      - service
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.ombi.rule=Host(`ombi.$INTERNAL_HOST`) || Host(`ombi.$EXTERNAL_HOST`)"
+        - "traefik.http.routers.ombi.entrypoints=web"
+        - "traefik.http.services.ombi.loadbalancer.server.port=3579"
+
+  # https://hub.docker.com/r/linuxserver/plex
+  plex:
+    image: linuxserver/plex:latest
+    networks:
+      - host
+    environment:
+      - PUID
+      - PGID
+      - VERSION=docker
+      # - PLEX_CLAIM=claim-VksUSywLrTECM6efT7EK
+      - ADVERTISE_IP=192.168.3.2
+    volumes:
+      - ${SERVICES_FOLDER}/plex:/config
+      - movie_library:/media/movies
+      - tv_library:/media/tv
+      - test_media:/media/test_media
+      # TODO: verify that this is ram transcoding when possible
+      - /tmp:/transcode
+    # deploy:
+    #   labels:
+    #     # - "traefik.enable=true"
+    #     # - "traefik.http.services.plex.loadbalancer.server.port=32400"
+    #     # - "traefik.http.routers.plex.rule=Host(`plex.$INTERNAL_HOST` || Host(`ombi.$EXTERNAL_HOST`)"
+    #     # - "traefik.http.routers.plex.entrypoints=web"
+        # - "traefik.docker.network=host"
+        # might need to over ride docker.network in traefik here
+
+  # https://github.com/silverwind/droppy
+  # droppy:
+  #   image: silverwind/droppy
+  #   networks:
+  #     - proxy
+  #   # ports:
+  #     # - '127.0.0.1:8989:8989'
+  #   volumes:
+  #     - droppy_data:/config
+  #     - ${DROPPY_SHARE}:/files
+  #   deploy:
+  #     labels:
+  #       - "traefik.enable=true"
+  #       - "traefik.http.routers.droppy.rule=Host(`droppy.${INTERNAL_HOST}`)"
+  #       - "traefik.http.routers.droppy.entrypoints=web"
+  #       - "traefik.http.services.droppy.loadbalancer.server.port=8989"
+
+  # nextcloud:
+  #   image: nextcloud
+  #   networks:
+  #     - proxy
+  #   environment:
+  #     # https://github.com/nextcloud/docker/issues/609
+  #     - MYSQL_HOST=mariadb:3306
+  #     - NEXTCLOUD_TRUSTED_DOMAINS=knowledgedump.lan
+  #     - NEXTCLOUD_HOSTNAME=nextcloud.knowledgedump.lan
+  #   # ports:
+  #     # - 8080:80
+  #   links:
+  #     - mariadb
+  #   volumes:
+  #     - ./services/nextcloud:/var/www/html
+  #   restart: always
+  #   labels:
+  #     - "traefik.enable=true"
+  #     # - "traefik.http.services.nextcloud.loadbalancer.server.port=80"
+  #     - "traefik.http.routers.nextcloud.rule=Host(`nextcloud.$INTERNAL_HOST`)"
+  #     - "traefik.http.routers.nextcloud.entrypoints=web"
+  #
+  #     # https://gist.github.com/containeroo-gists/010e993952c1bee5252ea5c001c68aac
+  #     # - "traefik.enable=true"
+  #     # - "traefik.http.routers.nextcloud.rule=Host(`nextcloud.example.com`)"
+  #     # - "traefik.http.middlewares.nextcloud-redirectregex.redirectregex.regex=https://(.*)/.well-known/(card|cal)dav"
+  #     # - "traefik.http.middlewares.nextcloud-redirectregex.redirectregex.replacement=https://$$1/remote.php/dav/"
+  #     # - "traefik.http.middlewares.nextcloud-redirectregex.redirectregex.permanent=true"
+  #     # - "traefik.http.routers.nextcloud.middlewares=nextcloud-redirectregex"
+  #     # - "traefik.http.routers.nextcloud.service=nextcloud"
+  #     # - "traefik.http.services.nextcloud.loadbalancer.server.port=80"
+  #     # - "traefik.docker.network=proxy"

@@ -1,0 +1,37 @@
+log:
+  level: "DEBUG"
+
+metrics:
+  prometheus:
+    buckets: "0.100000, 0.300000, 1.200000, 5.000000"
+
+api:
+  dashboard: true
+  insecure: true
+  debug: true
+
+entryPoints:
+  web:
+    address: ":80"
+  # websecure:
+  #   address: ":443"
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    useBindPortIP: true
+    # domain: knowedgedump.lan
+    swarmmode: true
+    network: "infra_proxy"
+
+# certificatesResolvers:
+#   cloudflare:
+#     acme:
+#       email: djdanielsh@gmail.com
+#       storage: acme.json
+#       dnsChallenge:
+#         provider: cloudflare
+#         resolvers:
+#           - "1.1.1.1:53"
+#           - "1.0.0.1:53"

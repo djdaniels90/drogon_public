@@ -1,0 +1,61 @@
+version: "3.7"
+
+networks:
+  service:
+    external:
+      name: infra_service
+  proxy:
+    external:
+      name: infra_proxy
+
+services:
+  # https://hub.docker.com/r/linuxserver/sabnzbd
+  sabnzbd:
+    image: linuxserver/sabnzbd:latest
+    networks:
+      - proxy
+      - service
+    environment:
+      - PUID
+      - PGID
+      - TZ
+    volumes:
+      # - /home/panda/downloads/sabnzbd:/config
+      - ${SERVICES_FOLDER}/sabnzbd:/config
+      - ${DOWNLOADS_FOLDER}/.incomplete/sabnzbd:/incomplete-downloads
+      - ${DOWNLOADS_FOLDER}/:/downloads
+    # ports:
+      # - 8080:8080
+      # - 9090:9090
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.sabnzbd.rule=Host(`sabnzbd.$INTERNAL_HOST`)"
+        - "traefik.http.routers.sabnzbd.entrypoints=web"
+        - "traefik.http.services.sabnzbd.loadbalancer.server.port=8080"
+
+  qbittorrent:
+    image: linuxserver/qbittorrent
+    networks:
+      - proxy
+      - service
+    environment:
+      - PUID
+      - PGID
+      - TZ
+      # - UMASK_SET=022
+      - WEBUI_PORT=8080
+    volumes:
+      - ${SERVICES_FOLDER}/qbittorrent:/config
+      - ${DOWNLOADS_FOLDER}/.incomplete/qbittorrent:/incomplete-downloads
+      - ${DOWNLOADS_FOLDER}/:/downloads
+    # ports:
+      # - 6881:6881
+      # - 6881:6881/udp
+      # - 8080:8080
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.services.qbittorrent.loadbalancer.server.port=8080"
+        - "traefik.http.routers.qbittorrent.rule=Host(`qbittorrent.$INTERNAL_HOST`)"
+        - "traefik.http.routers.qbittorrent.entrypoints=web"

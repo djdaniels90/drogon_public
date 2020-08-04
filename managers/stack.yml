@@ -1,0 +1,118 @@
+version: "3.7"
+
+# NOTE: can't quiet implement these yet
+# we want to rip out some of hte configs
+volumes:
+  movie_library:
+    external: true
+    name: infra_movie_library
+  tv_library:
+    external: true
+    name: infra_tv_library
+
+networks:
+  proxy:
+    external:
+      name: infra_proxy
+  service:
+    external:
+      name: infra_service
+
+services:
+  # https://hub.docker.com/r/linuxserver/radarr
+  radarr:
+    # user: "${PUID}:${PGID}"
+    image: linuxserver/radarr:latest
+    environment:
+      - PUID
+      - PGID
+      - TZ
+    volumes:
+      - ${SERVICES_FOLDER}/radarr:/config
+      - movie_library:/videos
+      - ${DOWNLOADS_FOLDER}:/downloads
+        #ports:
+        #- 7878:7878
+    networks:
+      - service
+      - proxy
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.services.radarr.loadbalancer.server.port=7878"
+        - "traefik.http.routers.radarr.rule=Host(`radarr.$INTERNAL_HOST`)"
+        - "traefik.http.routers.radarr.entrypoints=web"
+
+  # https://hub.docker.com/r/linuxserver/sonarr
+  sonarr:
+    image: linuxserver/sonarr:latest
+    environment:
+      - PUID
+      - PGID
+      - TZ
+    volumes:
+      # - sonarr_data:/config
+      - ${SERVICES_FOLDER}/sonarr:/config
+      - tv_library:/tv
+      - ${DOWNLOADS_FOLDER}:/downloads
+        #ports:
+        #- 8989:8989
+    networks:
+      - service
+      - proxy
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.sonarr.rule=Host(`sonarr.$INTERNAL_HOST`)"
+        - "traefik.http.services.sonarr.loadbalancer.server.port=8989"
+        - "traefik.http.routers.sonarr.entrypoints=web"
+
+  # # https://hub.docker.com/r/thraxis/lazylibrarian-calibre
+  # lazylibrarian:
+  #   image: thraxis/lazylibrarian-calibre:latest
+  #   container_name: lazylibrarian
+  #   networks:
+  #     - proxy
+  #   environment:
+  #     # NOTE THESE NEED TO BE 1024 UID, and 100PID for some reason right now
+  #     - PUID
+  #     - PGID
+  #     - TZ
+  #     # - GUAC_USER=abc #optional
+  #     # - GUAC_PASS=900150983cd24fb0d6963f7d28e17f72 #optional
+  #   volumes:
+  #     - ./services/lazycalibre:/config
+  #     - ${DOWNLOAD_FOLDER}:/downloads
+  #     - ${BOOK_DIR}:/books
+  #     # - ${AUDIOBOOK_DIR}:/audiobooks
+  #     # - ${MAGAZINE_DIR}:/magazines
+  #     # - ${COMICS_DIR}:/comics
+  #   # ports:
+  #     # - 5299:5299
+  #   restart: unless-stopped
+  #   labels:
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.lazylibrary.rule=Host(`lazylibrary.$INTERNAL_HOST`)"
+  #     - "traefik.http.routers.lazylibrary.entrypoints=web"
+
+  # # https://hub.docker.com/r/linuxserver/calibre-web
+  # calibre-web:
+  #   image: linuxserver/calibre-web
+  #   container_name: calibre-web
+  #   networks:
+  #     - proxy
+  #   environment:
+  #     - PUID
+  #     - PGID
+  #     - TZ
+  #     - DOCKER_MODS=linuxserver/calibre-web:calibre
+  #   volumes:
+  #     - ./services/calibre-web:/config
+  #     - ${BOOK_DIR}:/books
+  #   # ports:
+  #     # - 8083:8083
+  #   restart: unless-stopped
+  #   labels:
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.calibre.rule=Host(`calibre.$INTERNAL_HOST`)"
+  #     - "traefik.http.routers.calibre.entrypoints=web"

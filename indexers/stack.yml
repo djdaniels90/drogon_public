@@ -1,0 +1,59 @@
+version: "3.7"
+
+networks:
+  service:
+    external:
+      name: infra_service
+  proxy:
+    external:
+      name: infra_proxy
+
+services:
+  # https://hub.docker.com/r/linuxserver/hydra2
+  hydra2:
+    image: linuxserver/nzbhydra2:latest
+    networks:
+      - proxy
+      - service
+    environment:
+      - PUID
+      - PGID
+      - TZ
+    volumes:
+      - ${SERVICES_FOLDER}/hydra2:/config
+      # Location of the .nzb files, not the nzb download itself
+      # TODO: this might just be the store of downloaded nzbs,
+      # might want to change the name
+      # - ${HYDRA_BLACKHOLE}:/downloads
+    # ports:
+      # - 5076:5076
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.hydra2.rule=Host(`hydra2.$INTERNAL_HOST`)"
+        - "traefik.http.services.hydra2.loadbalancer.server.port=5076"
+        - "traefik.http.routers.hydra2.entrypoints=web"
+
+
+  # https://hub.docker.com/r/linuxserver/jackett
+  jackett:
+    image: linuxserver/jackett:latest
+    networks:
+      - proxy
+      - service
+    environment:
+      - PUID
+      - PGID
+      - TZ
+      # - RUN_OPTS=run options here #optional
+    volumes:
+      - ${SERVICES_FOLDER}/jackett:/config
+      # - ${JACKET_BLACKHOLE}:/downloads
+    # ports:
+    #   - 9117:9117
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.jackett.rule=Host(`jackett.$INTERNAL_HOST`)"
+        - "traefik.http.services.jackett.loadbalancer.server.port=9117"
+        - "traefik.http.routers.jackett.entrypoints=web"
